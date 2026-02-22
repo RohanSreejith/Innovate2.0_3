@@ -4,6 +4,10 @@ by rendering each page as a high-resolution image and overlaying
 user-supplied text using fpdf2.
 
 Dependencies: pypdfium2, fpdf2, Pillow (all present in venv)
+
+Paper sizes:
+  Aadhaar form  → A4         (210.0 × 297.0 mm)
+  DL form       → US Letter  (215.9 × 279.4 mm)
 """
 
 import os
@@ -28,6 +32,37 @@ FORM_TEMPLATES = {
 OUTPUT_DIR = os.path.join(os.path.dirname(__file__), "..", "data", "generated_forms")
 
 
+# ---------------------------------------------------------------------------
+# Helper: sanitise a string so it only uses characters supported by fpdf2's
+# built-in Helvetica font (Latin-1, code points 0x00–0xFF).
+# Replace the most common Unicode "lookalike" characters first, then drop
+# anything still outside Latin-1.
+# ---------------------------------------------------------------------------
+_UNICODE_REPLACEMENTS = str.maketrans({
+    "\u2014": "-",   # em dash  →  hyphen-minus
+    "\u2013": "-",   # en dash  →  hyphen-minus
+    "\u2012": "-",   # figure dash
+    "\u2011": "-",   # non-breaking hyphen
+    "\u2018": "'",   # left single quotation mark
+    "\u2019": "'",   # right single quotation mark / apostrophe
+    "\u201c": '"',   # left double quotation mark
+    "\u201d": '"',   # right double quotation mark
+    "\u2026": "...", # horizontal ellipsis
+    "\u00a0": " ",   # non-breaking space
+    "\u200b": "",    # zero-width space
+    "\u2022": "*",   # bullet
+    "\u2122": "TM",  # trade mark sign
+    "\u00ae": "(R)", # registered sign
+    "\u00a9": "(C)", # copyright sign
+})
+
+
+def _to_latin1(text: str) -> str:
+    """Replace common Unicode characters then drop anything outside Latin-1."""
+    text = text.translate(_UNICODE_REPLACEMENTS)
+    return text.encode("latin-1", errors="replace").decode("latin-1")
+
+
 class PDFFiller:
     """
     Fills a blank correction PDF by:
@@ -49,10 +84,24 @@ class PDFFiller:
         template_path = os.path.normpath(FORM_TEMPLATES[form_type])
         fields        = FORM_FIELDS[form_type]
 
+        # --- Paper size: Aadhaar = A4, DL = US Letter --------------------
+        if form_type == "dl":
+            paper_format = (215.9, 279.4)   # US Letter in mm
+            page_w_mm    = 215.9
+            page_h_mm    = 279.4
+        else:
+            paper_format = "A4"              # Aadhaar / default
+            page_w_mm    = 210.0
+            page_h_mm    = 297.0
+
+        logger.info(f"PDF FILLER: Starting fill for '{form_type}'")
+        field_summary = ", ".join([f"{f['id']}(p{f.get('page',0)})" for f in fields])
+        logger.info(f"PDF FILLER: All Fields: {field_summary}")
+
         os.makedirs(OUTPUT_DIR, exist_ok=True)
 
         src_pdf = pdfium.PdfDocument(template_path)
-        out_pdf = FPDF(unit="mm", format="A4")
+        out_pdf = FPDF(unit="mm", format=paper_format)
         out_pdf.set_auto_page_break(False)
 
         tmp_images = []
@@ -69,13 +118,18 @@ class PDFFiller:
                 pil_img.save(tmp_path, "PNG")
                 tmp_images.append(tmp_path)
 
-                # New PDF page — A4 full bleed
+                # New PDF page — full bleed to match actual paper
                 out_pdf.add_page()
-                out_pdf.image(tmp_path, x=0, y=0, w=210, h=297)
+                out_pdf.image(tmp_path, x=0, y=0, w=page_w_mm, h=page_h_mm)
 
                 # Overlay user text for fields on this page
                 out_pdf.set_font("Helvetica", size=9)
                 out_pdf.set_text_color(0, 50, 200)  # Bright blue ink
+
+                # Debug: log only field counts per page
+                page_fields = [f for f in fields if f["page"] == page_idx]
+                if page_fields:
+                    logger.info(f"PDF FILLER: Drawing {len(page_fields)} fields on Page {page_idx}")
 
                 for field in fields:
                     if field["page"] != page_idx:
@@ -84,6 +138,8 @@ class PDFFiller:
                     value = str(field_data.get(field["id"], "")).strip()
                     if not value or value.lower() in ("skip", "none", "n/a", "-"):
                         continue
+                    # Sanitize to Latin-1
+                    value = _to_latin1(value)
 
                     f_type = field.get("type", "text")
                     

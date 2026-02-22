@@ -12,7 +12,7 @@ class GroqClient:
         self.api_key = os.getenv("GROQ_API_KEY")
         if not self.api_key:
             raise ValueError("GROQ_API_KEY not found in environment variables")
-        self.client = Groq(api_key=self.api_key)
+        self.client = Groq(api_key=self.api_key, timeout=30.0) # 30s timeout to prevent uvicorn hangs
         self.model = "llama-3.1-8b-instant" # Production-ready reliable model
 
     def get_completion(self, prompt, system_prompt="You are a helpful assistant.", temperature=0.0, model=None, max_tokens=1024, json_mode=False, base64_image=None):

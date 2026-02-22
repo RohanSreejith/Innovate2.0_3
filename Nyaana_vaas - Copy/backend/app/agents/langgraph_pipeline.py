@@ -43,6 +43,8 @@ class AgentState(TypedDict):
     structured_output: dict
     refusal_reason: str
     status: str
+    questions: Optional[List[str]]
+    validated_content: Optional[str]
     
     # Observability
     agent_logs: List[Dict[str, str]]
@@ -146,7 +148,9 @@ class CivicAgentPipeline:
 
         # ── Detect form intent from current message OR conversation history ──
         aadhaar_kw = ["aadhaar", "aadhar", "uid", "uidai", "aadhaar correction", "aadhar update", "aadhaar update"]
-        dl_kw      = ["driving licence", "driving license", "dl correction", "license correction",
+        dl_kw      = ["driving licence", "driving license", "drivers license", "drivers licence",
+                      "driver's license", "driver's licence", "dl correction", "dl update", "update dl",
+                      "update my dl", "update my driving", "license correction", "licence correction",
                       "driver licence", "driver license", "rto correction"]
 
         # Check current message
@@ -441,6 +445,11 @@ class CivicAgentPipeline:
                 next_field = field
                 break
 
+        # Debug: Log the state of collection
+        logger.info(f"FormAgent State [{form_type}]: {json.dumps(collected)}")
+        if next_field:
+            logger.info(f"Next required field identified: {next_field['id']}")
+
         # ── 4. If there's a missing field → ask for it ─────────────────────────
         if next_field:
             state["status"] = "NEEDS_INFO"
@@ -497,106 +506,84 @@ class CivicAgentPipeline:
     def node_deterministic_legal(self, state: AgentState):
         """
         Phase 6: LLM-powered legal agent grounded in ChromaDB retrieval.
-        Fetches relevant statutes, generates a helpful answer, and asks
-        clarifying questions if the query is too vague.
         """
-        from ..services.vector_store import get_vector_store
-        from ..llm.groq_client import GroqClient
-        from ..utils.json_cleaner import parse_json_safely
-        import json
-        
-        vector_store = get_vector_store()
-        user_input = state["user_input"]
-        history = state.get("history", [])
-        
-        # ── 0. Language Detection & Translation for RAG ──────────────────────
-        logger.info(f"Processing Legal Node for user_input: {user_input[:50]}...")
-        
-        # Simpler, safer Malayalam detection
-        texts_to_check = [user_input]
-        for msg in history[-2:]:
-            if isinstance(msg, dict) and "text" in msg:
-                texts_to_check.append(msg["text"])
-        
-        is_malayalam = any('\u0D00' <= c <= '\u0D7F' for t in texts_to_check for c in t)
-        logger.info(f"Language detection: is_malayalam={is_malayalam}")
-        
-        search_query = user_input
-        
-        if is_malayalam:
-            try:
-                # Use LLM to translate Malayalam to English keywords for better vector search
-                llm = GroqClient()
-                trans_prompt = (
-                    f"Extract 2-3 broad English legal keywords from this query for a vector database search. "
-                    f"Focus ONLY on the core legal issue. Example: 'physical assault', 'money theft', 'property dispute'.\n"
-                    f"Query: '{user_input}'\n"
-                    f"Return ONLY the keywords separated by spaces."
-                )
-                translated = llm.get_completion(trans_prompt, system_prompt="Legal Keyword Extractor")
-                if translated and len(translated.strip()) > 2:
-                    search_query = translated.strip()
-                    state["agent_logs"].append({"agent": "System", "msg": f"Refined keywords for RAG: {search_query}"})
-            except Exception as e:
-                logger.warning(f"Translation for RAG failed: {e}")
-
-        # ── 1. Retrieve relevant legal sections from ChromaDB ──────────────────
-        results = []
         try:
-            # Try primary search
-            results = vector_store.search("ipc", search_query, top_k=5)
-            if not results:
-                # Fallback to broad search if no results found
-                broad_query = search_query.split()[0] if search_query else "legal"
-                results = vector_store.search("ipc", broad_query, top_k=5)
-                
-            if not results:
-                results = vector_store.search("bsa", search_query, top_k=5)
-        except Exception as e:
-            logger.error(f"Critical error during RAG retrieval: {e}")
-            results = []
-        
-        real_citations = []
-        context_text = ""
-        for res in results:
-            section_num = res.get('Section', 'N/A')
-            full_desc = res.get('Description', 'N/A')
-            # Short version for the UI badge — section number + brief snippet
-            short_desc = full_desc[:120].rstrip() + ("…" if len(full_desc) > 120 else "")
-            citation_label = f"Section {section_num}: {short_desc}"
-            real_citations.append(citation_label)
-            # Keep full description in context so LLM can still reason from it
-            context_text += f"Section {section_num}: {full_desc}\n"
-        
-        try:
-            state["agent_logs"].append({
-                "agent": "Legal",
-                "msg": json.dumps({
-                    "query": search_query,
-                    "status": "Success",
-                    "details": f"Refined search query for RAG. Retrieved {len(real_citations)} relevant legal sections from the database.",
-                    "citations": real_citations[:3]
-                })
-            })
-        except Exception as e:
-            logger.warning(f"Legal logging failed: {e}")
-        
-        # ── 2. Build history context ───────────────────────────────────────────
-        history_str = ""
-        if history:
-            history_str = "\n".join([
-                f"{m.get('role', 'user').upper()}: {m.get('text', '')}"
-                for m in history[-6:] if isinstance(m, dict)
-            ])
-        
-        # ── 3. Determine if we need more info ─────────────────────────────────
-        word_count = len(user_input.split())
-        is_vague = word_count < 5 and not history_str
-        
-        # ── 4. Call the LLM with retrieved context ────────────────────────────
-        try:
-            llm = GroqClient()
+            from ..services.vector_store import get_vector_store
+            from ..llm.groq_client import GroqClient
+            from ..utils.json_cleaner import parse_json_safely
+            import json
             
+            vector_store = get_vector_store()
+            user_input = state["user_input"]
+            history = state.get("history", [])
+            
+            # ── 0. Language Detection & Translation for RAG ──────────────────────
+            # Use safe logging that avoids crashes on Windows encoding
+            logger.info(f"Processing Legal Node...")
+            
+            # Simpler, safer Malayalam detection
+            texts_to_check = [user_input]
+            for msg in history[-2:]:
+                if isinstance(msg, dict) and "text" in msg:
+                    texts_to_check.append(msg["text"])
+            
+            is_malayalam = any('\u0D00' <= c <= '\u0D7F' for t in texts_to_check for c in t)
+            
+            search_query = user_input
+            
+            if is_malayalam:
+                try:
+                    llm = GroqClient()
+                    trans_prompt = (
+                        f"Extract 2-3 broad English legal keywords from this query for a vector database search. "
+                        f"Focus ONLY on the core legal issue. Example: 'physical assault', 'money theft', 'property dispute'.\n"
+                        f"Query: '{user_input}'\n"
+                        f"Return ONLY the keywords separated by spaces."
+                    )
+                    translated = llm.get_completion(trans_prompt, system_prompt="Legal Keyword Extractor")
+                    if translated and len(translated.strip()) > 2:
+                        search_query = translated.strip()
+                except Exception as e:
+                    logger.warning(f"Translation for RAG failed: {e}")
+
+            # ── Vector RAG — Legal Knowledge ───────────────────────────────────
+            # Re-enabled RAG with safety
+            try:
+                # Simple keyword extraction (ignore non-ascii for now to be safe)
+                keywords = "".join([c if ord(c) < 128 else " " for c in search_query]).strip()
+                if not keywords: keywords = "legal procedure" # default fallback
+                
+                retrieved_docs = vector_store.search("indian_legal_codes", search_query, top_k=3)
+                # Add Malayalam-specific retrieval if needed but using original query
+                # (SentenceTransformers handles multilingual well)
+                
+                context = "\n".join([f"[{d['Section']}]: {d['Description']}" for d in retrieved_docs])
+                if not context:
+                    context = "No specific sections found in database. Use general legal knowledge."
+            except Exception as rag_err:
+                logger.warning(f"RAG Retrieval failed (non-fatal): {rag_err}")
+                context = "Knowledge base search unavailable. Using internal training data."
+                retrieved_docs = []
+            
+            real_citations = []
+            context_text = ""
+            for res in retrieved_docs:
+                section_num = res.get('Section', 'N/A')
+                full_desc = res.get('Description', 'N/A')
+                short_desc = full_desc[:120].rstrip() + ("…" if len(full_desc) > 120 else "")
+                real_citations.append(f"Section {section_num}: {short_desc}")
+                context_text += f"Section {section_num}: {full_desc}\n"
+            
+            # ── 2. Build history context ───────────────────────────────────────────
+            history_str = ""
+            if history:
+                history_str = "\n".join([
+                    f"{m.get('role', 'user').upper()}: {m.get('text', '')}"
+                    for m in history[-6:] if isinstance(m, dict)
+                ])
+            
+            # ── 3. Call the LLM with retrieved context ────────────────────────────
+            llm = GroqClient()
             lang_label = 'MALAYALAM' if is_malayalam else 'ENGLISH'
             system_prompt = (
                 f"You are CIVIA, an expert Indian civic and legal AI assistant. "
@@ -607,13 +594,11 @@ class CivicAgentPipeline:
             )
             
             context_section = f"\nRELEVANT LEGAL SECTIONS FROM DATABASE:\n{context_text}" if context_text else ""
-            history_section = f"\nCONVERSATION HISTORY:\n{history_str}" if history_str else ""
-            
             prompt = f"""
 [STRICT REQUIREMENT: ALL JSON VALUES MUST BE IN {lang_label}]
 USER QUERY: "{user_input}"
 LANGUAGE: {lang_label}
-{history_section}
+{history_str}
 {context_section}
 
 INSTRUCTIONS:
@@ -622,8 +607,6 @@ INSTRUCTIONS:
 3. MANDATORY: Ask ONE specific follow-up question in {lang_label}.
 4. Return ONLY valid JSON in this exact format:
 {{"status": "answer" | "needs_info" | "refused", "response": "your full answer in {lang_label} here", "question": "follow-up in {lang_label} here"}}
-
-[CRITICAL: IF YOU RETURN ENGLISH FOR A MALAYALAM QUERY, YOU HAVE FAILED. USE MALAYALAM SCRIPT.]
 """
             
             response_text = llm.get_completion(prompt, system_prompt=system_prompt, json_mode=True)
@@ -631,80 +614,54 @@ INSTRUCTIONS:
                 raise ValueError("Empty response from LLM")
 
             parsed = parse_json_safely(response_text)
-            
             if not isinstance(parsed, dict):
-                # Fallback — treat entire text as plain answer
                 parsed = {"status": "answer", "response": response_text.strip(), "question": None}
             
             llm_status = parsed.get("status", "answer")
             llm_response = parsed.get("response") or parsed.get("answer") or parsed.get("advice") or ""
             llm_question = parsed.get("question")
-            
-            # If response is STILL empty, use the raw text but clean it up
+
             if not llm_response:
                 llm_response = response_text.strip()
+
+            # ── 4. Set output ──────────────────────────────────────────────────
+            if llm_status == "refused":
+                state["status"] = "REFUSED"
+                polite_refusal = "ക്ഷമിക്കണം, ഈ ചോദ്യത്തിന് ഞാൻ ഉത്തരം നൽകാൻ കഴിയുന്നില്ല." if is_malayalam else "I'm sorry, I'm unable to assist with this particular request."
+                state["refusal_reason"] = polite_refusal
+                state["structured_output"] = {"status": "REFUSED", "reason": polite_refusal}
+            elif llm_status == "needs_info" and llm_question:
+                state["status"] = "NEEDS_INFO"
+                state["structured_output"] = {"status": "NEEDS_INFO", "questions": [llm_question]}
+            else:
+                state["status"] = "SUCCESS"
+                state["structured_output"] = {
+                    "status": "SUCCESS",
+                    "advice": llm_response,
+                    "sections": real_citations,
+                    "questions": [llm_question] if llm_question else []
+                }
+            
+            return state
+
         except Exception as e:
-            logger.error(f"Legal LLM error: {e}")
-            state["agent_logs"].append({"agent": "System", "msg": f"LLM failure: {str(e)}"})
-            llm_status = "answer"
-            if is_malayalam:
-                llm_response = "എനിക്ക് വിവരങ്ങൾ ശേഖരിക്കുന്നതിൽ ചെറിയൊരു തടസ്സം നേരിട്ടു. നിയമപരമായ സഹായത്തിനായി ദയവായി നാഷണൽ ലീഗൽ സർവീസസ് അതോറിറ്റിയുടെ (NALSA) ഹെൽപ്പ് ലൈൻ നമ്പറായ 15100-ൽ ബന്ധപ്പെടുക."
-            else:
-                llm_response = "I encountered an issue accessing my knowledge base. For legal matters like this, I recommend consulting your local legal aid center or calling the National Legal Services Authority (NALSA) helpline at 15100."
-            llm_question = None
-        
-        # ── 5. Set output based on LLM intent ─────────────────────────────────
-        if llm_status == "refused":
-            state["status"] = "REFUSED"
-            # Build a polite refusal message in the user's language
-            if is_malayalam:
-                polite_refusal = (
-                    "ക്ഷമിക്കണം, ഈ ചോദ്യത്തിന് ഞാൻ ഉത്തരം നൽകാൻ കഴിയുന്നില്ല. "
-                    "CIVIA ഒരു ഇന്ത്യൻ പൗരാവകാശ സഹായ സ്ഥാനമാണ്, "
-                    "ഈ പ്ലാറ്റ്ഫോം ദുരുപയോഗം ചെയ്യുന്ന, ദോഷകരമായ, "
-                    "അല്ലെങ്കിൽ നിയമ ചട്ടക്കൂടിന് പുറത്തുള്ള ചോദ്യങ്ങൾക്ക് ഉത്തരം "
-                    "നൽകാൻ കഴിയില്ല. "
-                    "നിങ്ങൾക്ക് സഹായം ആവശ്യമെങ്കിൽ, "
-                    "ദയവായി നാഷണൽ ലീഗൽ സർവീസസ് അതോറിറ്റി (NALSA) "
-                    "ഹെൽപ്ലൈൻ 15100-ൽ ബന്ധപ്പെടുക."
-                )
-            else:
-                polite_refusal = (
-                    "I'm sorry, but I'm unable to assist with this particular request. "
-                    "CIVIA is an Indian civic and legal guidance platform — I can't respond to queries "
-                    "that are harmful, deceptive, or fall outside lawful civic guidance. "
-                    "If you need legal help, please reach out to the "
-                    "National Legal Services Authority (NALSA) helpline at 15100."
-                )
-            state["refusal_reason"] = polite_refusal
-            state["structured_output"] = {
-                "status": "REFUSED",
-                "reason": polite_refusal
-            }
-        elif llm_status == "needs_info" and llm_question:
-            state["status"] = "NEEDS_INFO"
-            state["structured_output"] = {
-                "status": "NEEDS_INFO",
-                "questions": [llm_question]
-            }
-            state["agent_logs"].append({
-                "agent": "System",
-                "msg": f"Clarification requested: {llm_question}"
-            })
-        else:
+            # Use safe error string to avoid encoding crashes on complex tracebacks
+            logger.error(f"Critical error in node_deterministic_legal: {repr(e)}")
+            # Safe localized fallback
+            is_malayalam = any('\u0D00' <= c <= '\u0D7F' for c in state.get("user_input", ""))
             state["status"] = "SUCCESS"
+            if is_malayalam:
+                fallback = "എനിക്ക് വിവരങ്ങൾ ശേഖരിക്കുന്നതിൽ ചെറിയൊരു തടസ്സം നേരിട്ടു. നിയമപരമായ സഹായത്തിനായി ദയവായി NALSA ഹെൽപ്പ് ലൈൻ നമ്പറായ 15100-ൽ ബന്ധപ്പെടുക."
+            else:
+                fallback = "I encountered an issue accessing my knowledge base. Please consult the NALSA helpline at 15100 for professional assistance."
+            
             state["structured_output"] = {
                 "status": "SUCCESS",
-                "advice": llm_response,
-                "sections": real_citations,
-                "questions": [llm_question] if llm_question else []
+                "advice": fallback,
+                "sections": [],
+                "questions": []
             }
-            state["agent_logs"].append({
-                "agent": "System",
-                "msg": f"Legal response generated. Citations: {len(real_citations)}"
-            })
-        
-        return state
+            return state
 
     def node_safe_refusal(self, state: AgentState):
         """Exit node for safety/ethics violations. Returns a polite, language-aware rejection."""
@@ -737,16 +694,33 @@ INSTRUCTIONS:
         }
         return state
 
-    def run(self, user_input: str, history: list = None, session_id: str = "default_session") -> dict:
+    def run(self, user_query: str, history: list = None, session_id: str = "default_session") -> dict:
+        """Main entry point for the agentic pipeline with state persistence."""
         config = {"configurable": {"thread_id": session_id}}
         
-        # Check if we already have state for this thread
-        current_state = self.pipeline.get_state(config)
-        
-        if not current_state.values:
-            # First turn: Initialize full schema
+        # 1. Load existing state if it exists
+        try:
+            current_state = self.pipeline.get_state(config)
+        except Exception:
+            current_state = None
+            
+        if current_state and current_state.values:
+            logger.info(f"Resuming pipeline state for session [{session_id}]")
+            initial_state = dict(current_state.values)
+            initial_state["user_input"] = user_query
+            initial_state["history"] = history or []
+            # Reset turn-specific outputs but PRESERVE collected_fields
+            initial_state["status"] = "INIT"
+            initial_state["agent_logs"] = []
+            initial_state["structured_output"] = {}
+            # Ensure collected_fields is non-empty if it was already there
+            if "collected_fields" not in initial_state:
+                initial_state["collected_fields"] = {}
+        else:
+            logger.info(f"Starting fresh pipeline state for session [{session_id}]")
             initial_state = {
-                "user_input": user_input,
+                "user_input": user_query,
+                "session_id": session_id,
                 "history": history or [],
                 "user_profile": {},
                 "service_intent": "",
@@ -756,45 +730,44 @@ INSTRUCTIONS:
                 "confidence_score": 1.0,
                 "structured_output": {},
                 "refusal_reason": "",
-                "status": "PENDING",
+                "status": "INIT",
                 "agent_logs": [],
                 "collected_fields": {},
                 "current_field": ""
             }
-        else:
-            # Subsequent turns: LangGraph replaces keys provided without reducers.
-            # We EXPLICITLY pass persistent state forward to ensure no data loss.
-            initial_state = {
-                "user_input": user_input,
-                "history": history or [],
-                "status": "PENDING",
-                "agent_logs": [],
-                "structured_output": {}, # Reset output so we don't return old advice
-                "collected_fields": current_state.values.get("collected_fields", {}),
-                "user_profile":     current_state.values.get("user_profile", {}),
-                "service_intent":   current_state.values.get("service_intent", "")
-            }
+        
+        try:
+            # 2. Execute Graph
+            final_state = self.pipeline.invoke(
+                initial_state,
+                config={"configurable": {"thread_id": session_id}}
+            )
             
-        final_state = self.pipeline.invoke(initial_state, config=config)
-        structured = final_state.get("structured_output", {})
-
-        # Promote all key fields to the top level so the orchestrator
-        # can access them with simple result.get("advice") etc.
-        output = {
-            # Status from the pipeline's own status field (most reliable)
-            "status": final_state.get("status") or structured.get("status", "ERROR"),
-            # Agent thought-process logs for the NeuralLink sidebar
-            "agent_logs": final_state.get("agent_logs", []),
-            # Response content
-            "advice":   structured.get("advice",   ""),
-            "sections": structured.get("sections", []),
-            "questions": structured.get("questions", []),
-            "download_url": structured.get("download_url"),
-            # Metadata
-            "confidence_score": final_state.get("confidence_score", 1.0),
-            "risk_level":       final_state.get("risk_level", "LOW"),
-            "refusal_reason":   final_state.get("refusal_reason") or structured.get("reason", ""),
-            # Keep orig structured_output for any legacy consumers
-            "structured_output": structured,
-        }
-        return output
+            # 3. Handle Final Results
+            # Extract fields from state with fallbacks
+            agent_logs = final_state.get("agent_logs", [])
+            structured = final_state.get("structured_output", {})
+            status     = final_state.get("status", "SUCCESS")
+            
+            # Ensure questions are flattened for orchestrator
+            questions = final_state.get("questions") or structured.get("questions", [])
+            
+            return {
+                "status": status,
+                "advice": structured.get("advice", ""),
+                "sections": structured.get("sections", []),
+                "questions": questions,
+                "agent_logs": agent_logs,
+                "confidence_score": final_state.get("confidence_score", 100.0),
+                "risk_level": final_state.get("risk_level", "LOW"),
+                "refusal_reason": final_state.get("refusal_reason") or structured.get("reason", ""),
+                "structured_output": structured,
+                "download_url": structured.get("download_url")
+            }
+        except Exception as e:
+            logger.error(f"Pipeline execution failed: {e}", exc_info=True)
+            return {
+                "status": "ERROR",
+                "reason": f"Execution Error: {str(e)}",
+                "agent_logs": [{"agent": "System", "msg": f"Pipeline crashed: {str(e)}"}]
+            }

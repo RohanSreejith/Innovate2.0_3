@@ -11,11 +11,27 @@ import logging
 
 logger = logging.getLogger(__name__)
 
-# Color scheme — professional India government blue
-GOV_BLUE = colors.HexColor("#003366")
-GOV_GOLD = colors.HexColor("#C9A84C")
-GOV_LIGHT_BLUE = colors.HexColor("#E8F0F7")
-GOV_BORDER = colors.HexColor("#B0C4DE")
+# ── Color themes per form type ──────────────────────────────────────────────
+THEMES = {
+    "aadhaar": {
+        "header":      colors.HexColor("#003366"),  # UIDAI navy
+        "accent":      colors.HexColor("#C9A84C"),  # gold
+        "row_bg":      colors.HexColor("#E8F0F7"),
+        "border":      colors.HexColor("#B0C4DE"),
+    },
+    "dl": {
+        "header":      colors.HexColor("#1A472A"),  # MVD deep green
+        "accent":      colors.HexColor("#D4A017"),  # amber
+        "row_bg":      colors.HexColor("#EAF4EA"),
+        "border":      colors.HexColor("#A3C4A3"),
+    },
+    "default": {
+        "header":      colors.HexColor("#4A4A4A"),
+        "accent":      colors.HexColor("#888888"),
+        "row_bg":      colors.HexColor("#F5F5F5"),
+        "border":      colors.HexColor("#CCCCCC"),
+    },
+}
 
 # A4 usable width = 21cm - 2cm (left) - 2cm (right) = 17cm
 PAGE_W = 17 * cm
@@ -38,12 +54,25 @@ class FormGenerator:
         filename = f"{service_type}_{datetime.now().strftime('%Y%m%d_%H%M%S')}.pdf"
         filepath = os.path.join(self.output_dir, filename)
 
-        # Load field metadata if available
+        # Load field metadata
         meta_path = f"backend/app/data/forms/{service_type}.json"
         template_meta = None
         if os.path.exists(meta_path):
             with open(meta_path, "r") as f:
                 template_meta = json.load(f)
+
+        # Pick color theme by form type keyword
+        theme_key = "default"
+        stype_lower = service_type.lower()
+        if "aadhaar" in stype_lower or "aadhar" in stype_lower:
+            theme_key = "aadhaar"
+        elif "dl" in stype_lower or "driving" in stype_lower or "licence" in stype_lower:
+            theme_key = "dl"
+        T = THEMES[theme_key]
+        HDR_COLOR = T["header"]
+        ACCENT    = T["accent"]
+        ROW_BG    = T["row_bg"]
+        BORDER    = T["border"]
 
         fields = []
         if template_meta:
@@ -75,23 +104,26 @@ class FormGenerator:
         header_style = ParagraphStyle(
             "Header",
             fontName="Helvetica-Bold",
-            fontSize=16,
-            textColor=GOV_BLUE,
+            fontSize=15,
+            textColor=HDR_COLOR,
             alignment=TA_CENTER,
-            spaceAfter=4
+            spaceAfter=3
         )
         sub_header_style = ParagraphStyle(
             "SubHeader",
             fontName="Helvetica-Bold",
-            fontSize=11,
-            textColor=GOV_BLUE,
+            fontSize=10,
+            textColor=HDR_COLOR,
             alignment=TA_CENTER,
             spaceAfter=2
         )
+        dept_name = template_meta.get("department", "Government of India") if template_meta else "Government of India"
+        act_ref   = template_meta.get("act_reference", "") if template_meta else ""
 
-        story.append(Paragraph("UNIQUE IDENTIFICATION AUTHORITY OF INDIA", header_style))
-        story.append(Paragraph("Government of India", sub_header_style))
-        story.append(HRFlowable(width="100%", thickness=2, color=GOV_BLUE, spaceAfter=6))
+        story.append(Paragraph(dept_name, header_style))
+        if act_ref:
+            story.append(Paragraph(f"[{act_ref}]", sub_header_style))
+        story.append(HRFlowable(width="100%", thickness=2, color=HDR_COLOR, spaceAfter=6))
 
         # ── Form Title Banner ───────────────────────────────────────────────────
         form_title = template_meta.get("form_name", service_type.replace("_", " ").title()) if template_meta else service_type.replace("_", " ").title()
@@ -100,7 +132,7 @@ class FormGenerator:
             colWidths=[PAGE_W]
         )
         title_table.setStyle(TableStyle([
-            ("BACKGROUND", (0, 0), (-1, -1), GOV_BLUE),
+            ("BACKGROUND", (0, 0), (-1, -1), HDR_COLOR),
             ("TOPPADDING", (0, 0), (-1, -1), 10),
             ("BOTTOMPADDING", (0, 0), (-1, -1), 10),
             ("LEFTPADDING", (0, 0), (-1, -1), 10),
@@ -110,7 +142,7 @@ class FormGenerator:
         story.append(Spacer(1, 0.5*cm))
 
         # ── Field rows ──────────────────────────────────────────────────────────
-        label_style = ParagraphStyle("Label", fontName="Helvetica-Bold", fontSize=10, textColor=GOV_BLUE)
+        label_style = ParagraphStyle("Label", fontName="Helvetica-Bold", fontSize=10, textColor=HDR_COLOR)
         value_style = ParagraphStyle("Value", fontName="Helvetica", fontSize=11, textColor=colors.black)
 
         table_data = []
@@ -127,9 +159,9 @@ class FormGenerator:
                 ("BOTTOMPADDING", (0, 0), (-1, -1), 7),
                 ("LEFTPADDING", (0, 0), (-1, -1), 6),
                 ("RIGHTPADDING", (0, 0), (-1, -1), 6),
-                ("BACKGROUND", (0, 0), (0, -1), GOV_LIGHT_BLUE),
-                ("LINEBELOW", (0, 0), (-1, -2), 0.5, GOV_BORDER),
-                ("BOX", (0, 0), (-1, -1), 1, GOV_BORDER),
+                ("BACKGROUND", (0, 0), (0, -1), ROW_BG),
+                ("LINEBELOW", (0, 0), (-1, -2), 0.5, BORDER),
+                ("BOX", (0, 0), (-1, -1), 1, BORDER),
             ]))
             story.append(field_table)
             story.append(Spacer(1, 1*cm))
@@ -153,7 +185,7 @@ class FormGenerator:
         story.append(Spacer(1, 1.5*cm))
 
         # ── Footer ──────────────────────────────────────────────────────────────
-        story.append(HRFlowable(width="100%", thickness=1, color=GOV_GOLD))
+        story.append(HRFlowable(width="100%", thickness=1, color=ACCENT))
         footer_style = ParagraphStyle("Footer", fontName="Helvetica", fontSize=8, textColor=colors.grey, alignment=TA_CENTER, spaceBefore=4)
         story.append(Paragraph("Generated by NYAANA-VAAS AI KIOSK &bull; Akshaya Digital Support Centre &bull; Govt of Kerala", footer_style))
 

@@ -1,6 +1,6 @@
 import React, { useState, useRef, useEffect } from 'react';
 import { useSession } from '../state/SessionContext';
-import { Send, AlertTriangle, Shield, Mic, Volume2, RefreshCw, CheckCircle2, BookOpen, Download, Paperclip, X, Printer } from 'lucide-react';
+import { Send, AlertTriangle, Shield, Mic, Volume2, RefreshCw, CheckCircle2, BookOpen, Download, Paperclip, X, Printer, Activity } from 'lucide-react';
 import { useNavigate } from 'react-router-dom';
 
 import { NeuralLink } from '../components/NeuralLink';
@@ -229,7 +229,9 @@ export const Session: React.FC = () => {
     const [attachment, setAttachment] = useState<File | null>(null);
     const fileInputRef = useRef<HTMLInputElement>(null);
 
-    // â”€â”€ Voice Dictation â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+    // -----------------------------------------------------------------------------
+    // Voice Dictation
+    // -----------------------------------------------------------------------------
     const toggleRecording = () => {
         const SpeechRecognition = (window as any).SpeechRecognition || (window as any).webkitSpeechRecognition;
         if (!SpeechRecognition) {
@@ -678,15 +680,18 @@ export const Session: React.FC = () => {
                     </div>
 
                     <button
-
-                        onClick={handleEnd}
-
-                        className="text-[10px] px-4 py-1.5 border border-white/10 text-gov-text hover:bg-white/5 rounded transition-colors uppercase tracking-widest"
-
+                        onClick={() => navigate('/pipeline')}
+                        className="flex items-center gap-2 text-[10px] px-4 py-1.5 border border-gov-gold/30 text-gov-gold hover:bg-gov-gold/5 rounded transition-colors uppercase tracking-widest font-bold"
                     >
+                        <Activity size={12} />
+                        Live Pipeline
+                    </button>
 
+                    <button
+                        onClick={handleEnd}
+                        className="text-[10px] px-4 py-1.5 border border-white/10 text-gov-text-muted hover:bg-white/5 rounded transition-colors uppercase tracking-widest"
+                    >
                         End Session
-
                     </button>
 
                 </div>
@@ -707,151 +712,117 @@ export const Session: React.FC = () => {
 
 
 
-                    {/* Input Card */}
-
-                    <div className="glass-panel p-4 flex flex-col gap-3 shrink-0 rounded-xl">
-
-                        <span className="text-[10px] font-bold text-gov-text-muted uppercase tracking-widest">Citizen Inquiry</span>
-
-                        {/* Optional Attachment Readout */}
-                        {attachment && (
-                            <div className="flex items-center justify-between bg-gov-navy-light border border-gov-gold/30 rounded-lg p-2 mb-2">
-                                <div className="flex items-center gap-2 overflow-hidden text-gov-gold">
-                                    <Paperclip size={14} className="shrink-0" />
-                                    <span className="text-xs truncate font-medium">{attachment.name}</span>
+                    {/* Chat Section */}
+                    <div className="flex-1 flex flex-col min-h-0">
+                        <div className="flex-1 overflow-y-auto custom-scrollbar flex flex-col gap-4 pr-2 pb-4 pt-2">
+                            {messages.length === 0 && (
+                                <div className="h-full flex flex-col items-center justify-center text-gov-text-muted gap-3">
+                                    <Shield size={32} className="text-gov-gold/20" />
+                                    <p className="text-xs uppercase tracking-widest opacity-50">System Standby — Submit a query to begin</p>
                                 </div>
-                                <button onClick={() => setAttachment(null)} className="text-gov-text-muted hover:text-red-400 p-1">
-                                    <X size={14} />
-                                </button>
-                            </div>
-                        )}
-                        <div className="flex gap-3 items-end">
-                            <textarea
-                                value={input}
-                                onChange={(e) => setInput(e.target.value)}
-                                onKeyDown={(e) => {
-                                    if (e.key === 'Enter' && !e.shiftKey) {
-                                        e.preventDefault();
-                                        handleSend();
-                                    }
-                                }}
-                                placeholder="Describe your legal or civic situation, or attach a document... (e.g. my landlord evicted me)"
-                                className="flex-1 h-20 bg-gov-navy border border-white/10 text-gov-text rounded-lg p-3 text-sm focus:outline-none focus:border-gov-gold/50 transition-colors resize-none placeholder-gray-600"
-                            />
-                            <div className="flex flex-col gap-2 shrink-0">
-                                <button
-                                    onClick={() => fileInputRef.current?.click()}
-                                    className={`p-3 rounded-lg transition-colors border ${attachment ? 'bg-gov-gold/10 border-gov-gold/50 text-gov-gold' : 'bg-gov-navy border-white/10 text-gov-text-muted hover:text-gov-text'}`}
-                                    title="Attach Document"
-                                >
-                                    <Paperclip size={18} />
-                                </button>
-                                <input type="file" ref={fileInputRef} className="hidden" accept="image/*,.pdf" onChange={(e) => setAttachment(e.target.files?.[0] || null)} />
-                                <button
-                                    onClick={toggleRecording}
-                                    className={`p-3 rounded-lg transition-colors border ${recording ? 'bg-red-500/10 border-red-500/50 text-red-500' : 'bg-gov-navy border-white/10 text-gov-text-muted hover:text-gov-text'}`}
-                                >
+                            )}
 
-                                    <Mic size={18} />
+                            {messages.map((msg, idx) => (
+                                <div key={idx} className={`flex ${msg.role === 'user' ? 'justify-end' : 'justify-start'}`}>
+                                    <div className={`max-w-[85%] lg:max-w-[75%] p-4 rounded-2xl shadow-lg border relative group transition-all duration-300 ${msg.role === 'user'
+                                        ? 'bg-gov-navy-light/90 border-gov-gold/30 text-gov-text rounded-tr-none'
+                                        : 'bg-white/5 border-white/10 text-gov-text rounded-tl-none'
+                                        }`}>
 
-                                </button>
+                                        {msg.role === 'user' ? (
+                                            <p className="text-sm leading-relaxed whitespace-pre-wrap">{msg.text}</p>
+                                        ) : (
+                                            <FormattedMessage
+                                                text={msg.text}
+                                                onSpeak={playAudio}
+                                                questions={msg.questions}
+                                                sections={msg.sections}
+                                                downloadUrl={msg.downloadUrl}
+                                                qrCode={msg.qrCode}
+                                            />
+                                        )}
 
-                                <button
+                                        <div className={`absolute top-full mt-1 text-[8px] uppercase tracking-tighter text-gov-text-muted opacity-0 group-hover:opacity-100 transition-opacity ${msg.role === 'user' ? 'right-2' : 'left-2'}`}>
+                                            {msg.role === 'user' ? 'Citizen' : 'CIVIA Agent'}
+                                        </div>
+                                    </div>
+                                </div>
+                            ))}
 
-                                    onClick={() => handleSend()}
+                            {loading && (
+                                <div className="flex justify-start">
+                                    <div className="bg-white/5 border border-white/10 p-4 rounded-2xl rounded-tl-none flex flex-col gap-2">
+                                        <div className="flex items-center gap-2 mb-1">
+                                            <div className="w-1.5 h-1.5 bg-gov-gold rounded-full animate-typing-dot" style={{ animationDelay: '0s' }} />
+                                            <div className="w-1.5 h-1.5 bg-gov-gold rounded-full animate-typing-dot" style={{ animationDelay: '0.2s' }} />
+                                            <div className="w-1.5 h-1.5 bg-gov-gold rounded-full animate-typing-dot" style={{ animationDelay: '0.4s' }} />
+                                        </div>
+                                        <span className="text-[9px] uppercase tracking-widest text-gov-gold font-bold">Civia is processing</span>
+                                    </div>
+                                </div>
+                            )}
 
-                                    disabled={loading}
-
-                                    className="p-3 bg-gov-gold text-gov-navy rounded-lg hover:bg-yellow-500 disabled:opacity-50 transition-colors flex items-center justify-center font-bold"
-
-                                >
-
-                                    <Send size={18} />
-
-                                </button>
-
-                            </div>
-
+                            <div ref={chatEndRef} />
                         </div>
 
-                    </div>
+                        {/* Bottom Input Area */}
+                        <div className="glass-panel p-4 flex flex-col gap-3 shrink-0 rounded-2xl border-white/10 shadow-2xl mt-auto">
+                            {/* Optional Attachment Readout */}
+                            {attachment && (
+                                <div className="flex items-center justify-between bg-gov-navy-light border border-gov-gold/30 rounded-lg p-2 mb-1">
+                                    <div className="flex items-center gap-2 overflow-hidden text-gov-gold">
+                                        <Paperclip size={14} className="shrink-0" />
+                                        <span className="text-xs truncate font-medium">{attachment.name}</span>
+                                    </div>
+                                    <button onClick={() => setAttachment(null)} className="text-gov-text-muted hover:text-red-400 p-1">
+                                        <X size={14} />
+                                    </button>
+                                </div>
+                            )}
 
-
-
-                    {/* Chat */}
-
-                    <div className="flex-1 overflow-y-auto custom-scrollbar flex flex-col gap-4 pr-2">
-
-                        {messages.length === 0 && (
-
-                            <div className="h-full flex flex-col items-center justify-center text-gov-text-muted gap-3">
-
-                                <Shield size={32} className="text-gov-gold/20" />
-
-                                <p className="text-xs uppercase tracking-widest opacity-50">System Standby â€” Submit a query to begin</p>
-
-                            </div>
-
-                        )}
-
-
-
-                        {messages.map((msg, idx) => (
-
-                            <div key={idx} className={`flex ${msg.role === 'user' ? 'justify-end' : 'justify-start'}`}>
-
-                                <div className={`max-w-[80%] p-4 rounded-xl shadow-sm border ${msg.role === 'user'
-
-                                    ? 'bg-gov-navy-light border-gov-gold/20 text-gov-text'
-
-                                    : 'bg-white/5 border-white/10 text-gov-text'
-
-                                    }`}>
-
-                                    {msg.role === 'user' ? (
-
-                                        <p className="text-sm">{msg.text}</p>
-
-                                    ) : (
-
-                                        <FormattedMessage
-
-                                            text={msg.text}
-
-                                            onSpeak={playAudio}
-
-                                            questions={msg.questions}
-
-                                            sections={msg.sections}
-
-                                            downloadUrl={msg.downloadUrl}
-                                            qrCode={msg.qrCode}
-                                        />
-
-                                    )}
-
+                            <div className="flex gap-3 items-end">
+                                <div className="flex-1 relative">
+                                    <textarea
+                                        value={input}
+                                        onChange={(e) => setInput(e.target.value)}
+                                        onKeyDown={(e) => {
+                                            if (e.key === 'Enter' && !e.shiftKey) {
+                                                e.preventDefault();
+                                                handleSend();
+                                            }
+                                        }}
+                                        placeholder="Describe your legal or civic situation..."
+                                        className="w-full h-14 bg-gov-navy border border-white/10 text-gov-text rounded-xl pl-4 pr-12 py-3 text-sm focus:outline-none focus:border-gov-gold/50 transition-all resize-none placeholder-gray-600 focus:ring-1 focus:ring-gov-gold/20"
+                                    />
+                                    <button
+                                        onClick={() => fileInputRef.current?.click()}
+                                        className={`absolute right-3 bottom-3 p-1.5 rounded-lg transition-colors ${attachment ? 'text-gov-gold' : 'text-gov-text-muted hover:text-gov-text'}`}
+                                        title="Attach Document"
+                                    >
+                                        <Paperclip size={16} />
+                                    </button>
+                                    <input type="file" ref={fileInputRef} className="hidden" accept="image/*,.pdf" onChange={(e) => setAttachment(e.target.files?.[0] || null)} />
                                 </div>
 
+                                <div className="flex gap-2 shrink-0">
+                                    <button
+                                        onClick={toggleRecording}
+                                        className={`p-3.5 rounded-xl transition-all border ${recording ? 'bg-red-500/10 border-red-500/50 text-red-500 animate-pulse' : 'bg-gov-navy border-white/10 text-gov-text-muted hover:text-gov-text hover:border-white/20'}`}
+                                        title="Voice Dictation"
+                                    >
+                                        <Mic size={18} />
+                                    </button>
+
+                                    <button
+                                        onClick={() => handleSend()}
+                                        disabled={loading || (!input.trim() && !attachment)}
+                                        className="p-3.5 bg-gov-gold text-gov-navy rounded-xl hover:bg-yellow-500 disabled:opacity-30 disabled:grayscale transition-all flex items-center justify-center font-bold shadow-lg shadow-gov-gold/10"
+                                    >
+                                        <Send size={18} />
+                                    </button>
+                                </div>
                             </div>
-
-                        ))}
-
-
-
-                        {loading && (
-
-                            <div className="flex items-center gap-3 text-gov-gold/60 p-4 text-[10px] uppercase font-bold tracking-widest">
-
-                                <RefreshCw className="animate-spin" size={14} />
-
-                                Querying legal vectors...
-
-                            </div>
-
-                        )}
-
-                        <div ref={chatEndRef} />
-
+                        </div>
                     </div>
 
                 </section>

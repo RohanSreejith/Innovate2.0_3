@@ -5,8 +5,11 @@ Each field entry:
   id       - unique key used to store the collected value
   label    - question shown to the user
   page     - 0-indexed PDF page number this field belongs to
-  x, y     - position in mm from top-left on A4 page where text is placed
+  x, y     - position in mm from top-left of page where text is placed
   required - whether the field must be answered (False = optional, can be skipped)
+
+NOTE: Aadhaar form is A4 (210×297 mm). DL form is US Letter (215.9×279.4 mm).
+All (x,y) coords were calibrated from rendered PNG grids — do NOT guess.
 """
 
 AADHAAR_FIELDS = [
@@ -141,106 +144,165 @@ AADHAAR_FIELDS = [
     },
 ]
 
+# ─────────────────────────────────────────────────────────────────────────────
+# DL Form — US Letter paper (215.9 × 279.4 mm)
+# Page 0 = service-type checkboxes + COV  (no personal data here)
+# Page 1 = personal details (name, DOB, gender, address, contact)
+# Page 2 = pin code continuation + licence particulars + declaration
+#
+# ALL (x, y) values calibrated from 4× PNG grids (2 mm grid step).
+# Table spans x≈42 – x≈183 mm.  Right-column data cells start at x≈93 mm.
+# ─────────────────────────────────────────────────────────────────────────────
 DL_FIELDS = [
-    # ── Applicant Details ──────────────────────────────────────────────────────
+    # ── Page 0: Service Type Checkboxes ──────────────────────────────────────
+    # Tick column sits in the right gutter of each service row.
+    # x ≈ 183 mm (just inside right edge of the tick box), y varies per row.
+    {
+        "id": "service_type",
+        "label": "What service are you applying for? (e.g. Change of Address, Change of Name, Renewal, Duplicate, Addition of Class)",
+        "page": 0, "x": 183, "y": 107, "required": True,
+        "type": "checkbox",
+        "options": {
+            "Learner's Licence":   {"x": 178, "y": 107},
+            "New Driving Licence": {"x": 178, "y": 117},
+            "Addition of Class":   {"x": 178, "y": 124},
+            "Renewal":             {"x": 178, "y": 130},
+            "Duplicate":           {"x": 178, "y": 136},
+            "Change of Address":   {"x": 178, "y": 143},
+            "Change of Name":      {"x": 178, "y": 149},
+        },
+    },
+
+    # ── Page 1: Aadhaar Card Number (row at y ≈ 97, right cell x ≈ 110) ─────
+    {
+        "id": "aadhaar_number",
+        "label": "Your Aadhaar card number (12 digits, optional — press Enter to skip)",
+        "page": 1, "x": 110, "y": 97, "required": False,
+    },
     {
         "id": "applicant_name",
-        "label": "Full name as it appears on your existing Driving Licence",
-        "page": 0, "x": 70, "y": 66, "required": True,
+        "label": "Full name of the applicant (as it should appear on DL)",
+        "page": 1, "x": 44, "y": 118, "required": True,
     },
-    {
-        "id": "dl_number",
-        "label": "Existing Driving Licence number (e.g. KA01-20200012345)",
-        "page": 0, "x": 70, "y": 78, "required": True,
-    },
-    {
-        "id": "dob",
-        "label": "Date of birth as on DL (DD/MM/YYYY)",
-        "page": 0, "x": 70, "y": 90, "required": True,
-    },
+    # ── Son/wife/daughter of  (full-width row at y ≈ 126) ───────────────────
     {
         "id": "father_husband_name",
         "label": "Father's / Husband's / Wife's full name",
-        "page": 0, "x": 70, "y": 102, "required": True,
+        "page": 1, "x": 44, "y": 124, "required": True,
     },
+    # ── Date of birth row (single merged row y ≈ 131) ──────────────────────
     {
-        "id": "mobile",
-        "label": "Mobile number",
-        "page": 0, "x": 70, "y": 114, "required": True,
+        "id": "dob",
+        "label": "Date of birth as on DL (DD/MM/YYYY)",
+        "page": 1, "x": 44, "y": 131, "required": True,
     },
+    # ── Gender checkboxes (y ≈ 138): Male □  Female □  Transgender □ ─────────
+    {
+        "id": "gender",
+        "label": "Gender (Male / Female / Transgender)",
+        "page": 1, "x": 44, "y": 138, "required": True,
+        "type": "checkbox",
+        "options": {
+            "Male":        {"x": 30,  "y": 138},
+            "Female":      {"x": 44,  "y": 138},
+            "Transgender": {"x": 62,  "y": 138},
+        },
+    },
+    # ── Date of Birth box (right half of gender row, x ≈ 156) ────────────────
+    {
+        "id": "dob_box",
+        "label": "Date of Birth (DD/MM/YYYY) — in the Date of Birth box",
+        "page": 1, "x": 156, "y": 138, "required": False,
+    },
+    # ── Educational Qualification (left half of row y ≈ 148) ────────────────
+    {
+        "id": "educational_qualification",
+        "label": "Educational qualification (e.g. 10th Pass, Graduate — press Enter to skip)",
+        "page": 1, "x": 44, "y": 148, "required": False,
+    },
+    # ── Email and Mobile in split row y ≈ 156 ───────────────────────────────
     {
         "id": "email",
         "label": "Email address (optional — press Enter to skip)",
-        "page": 0, "x": 70, "y": 126, "required": False,
+        "page": 1, "x": 44, "y": 156, "required": False,
     },
-    # ── Address ────────────────────────────────────────────────────────────────
+    {
+        "id": "mobile",
+        "label": "Mobile number (10 digits)",
+        "page": 1, "x": 137, "y": 156, "required": True,
+    },
+
+    # ── Section 4 — Present Address ───────────────────────────────────────────
+    # Address table: label col x≈43–91, Present col x≈93–136, Permanent x≈136–183
+    # We fill the Present column (x=93).
     {
         "id": "address_line1",
-        "label": "Current address — House/Flat number and Street name",
-        "page": 0, "x": 70, "y": 142, "required": True,
+        "label": "House / Door / Flat number and Street",
+        "page": 1, "x": 93, "y": 200, "required": True,
     },
     {
         "id": "address_line2",
-        "label": "Address — Area / Landmark (optional)",
-        "page": 0, "x": 70, "y": 152, "required": False,
+        "label": "Locality / Police Station area / Landmark",
+        "page": 1, "x": 93, "y": 209, "required": False,
+    },
+    {
+        "id": "landmark",
+        "label": "Landmark (optional — press Enter to skip)",
+        "page": 1, "x": 93, "y": 217, "required": False,
     },
     {
         "id": "city",
-        "label": "City / Town",
-        "page": 0, "x": 70, "y": 162, "required": True,
+        "label": "Village / Town / City",
+        "page": 1, "x": 93, "y": 223, "required": True,
+    },
+    {
+        "id": "district",
+        "label": "District (e.g. Ernakulam, Thiruvananthapuram)",
+        "page": 1, "x": 93, "y": 230, "required": True,
     },
     {
         "id": "state",
-        "label": "State",
-        "page": 0, "x": 140, "y": 162, "required": True,
+        "label": "State (e.g. Kerala, Tamil Nadu)",
+        "page": 1, "x": 93, "y": 237, "required": True,
     },
+
+    # ── Page 2: PIN code (top of page 2, Present address continued) ─────────
     {
         "id": "pincode",
         "label": "PIN Code (6 digits)",
-        "page": 0, "x": 70, "y": 172, "required": True,
+        "page": 2, "x": 93, "y": 45, "required": True,
     },
-    # ── Licence Details ────────────────────────────────────────────────────────
+    # ── Section 6 — Existing Licence Particulars ──────────────────────────────
     {
-        "id": "rto_name",
-        "label": "Name of RTO (Regional Transport Office) that issued your DL",
-        "page": 0, "x": 70, "y": 188, "required": True,
+        "id": "dl_number",
+        "label": "Existing Driving Licence number (e.g. KL01-20200012345)",
+        "page": 2, "x": 93, "y": 130, "required": True,
     },
     {
         "id": "vehicle_class",
-        "label": "Vehicle class(es) on your DL (e.g. LMV, MCWG, Transport)",
-        "page": 0, "x": 70, "y": 200, "required": True,
+        "label": "Vehicle class(es) on your existing DL (e.g. LMV, MCWG, Transport)",
+        "page": 2, "x": 93, "y": 141, "required": True,
     },
     {
-        "id": "dl_validity",
-        "label": "DL validity date as shown on your licence (DD/MM/YYYY)",
-        "page": 0, "x": 70, "y": 212, "required": True,
-    },
-    # ── Correction Details ─────────────────────────────────────────────────────
-    {
-        "id": "correction_fields",
-        "label": "Which details need correction? (e.g. Name, Address, Date of Birth, Photo)",
-        "page": 0, "x": 70, "y": 228, "required": True,
+        "id": "rto_name",
+        "label": "Name of the Licencing Authority (RTO) that issued your DL",
+        "page": 2, "x": 93, "y": 150, "required": True,
     },
     {
-        "id": "correction_reason",
-        "label": "Brief reason for correction (e.g. Typographical error, Address change)",
-        "page": 0, "x": 70, "y": 240, "required": True,
+        "id": "dl_validity_from",
+        "label": "DL validity FROM date (DD/MM/YYYY)",
+        "page": 2, "x": 93, "y": 160, "required": True,
     },
     {
-        "id": "documents_enclosed",
-        "label": "Documents you will attach (e.g. Aadhaar, Passport, address proof, passport photo)",
-        "page": 0, "x": 70, "y": 252, "required": True,
+        "id": "dl_validity_to",
+        "label": "DL validity TO date (DD/MM/YYYY)",
+        "page": 2, "x": 148, "y": 160, "required": True,
     },
-    # ── Declaration ────────────────────────────────────────────────────────────
-    {
-        "id": "place",
-        "label": "Place (city where you are signing this form)",
-        "page": 0, "x": 70, "y": 270, "required": True,
-    },
+    # ── Declaration — Date (y ≈ 196) ────────────────────────────────────────
     {
         "id": "date",
         "label": "Today's date (DD/MM/YYYY)",
-        "page": 0, "x": 140, "y": 270, "required": True,
+        "page": 2, "x": 50, "y": 196, "required": True,
     },
 ]
 

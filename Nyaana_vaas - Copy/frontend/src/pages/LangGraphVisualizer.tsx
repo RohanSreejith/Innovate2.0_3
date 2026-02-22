@@ -1,5 +1,6 @@
 import React, { useState, useEffect, useCallback } from 'react';
-import { Cpu, ChevronRight, Play, RotateCcw } from 'lucide-react';
+import { Cpu, ChevronRight, Play, RotateCcw, ChevronLeft } from 'lucide-react';
+import { useNavigate } from 'react-router-dom';
 
 // ─── Node definitions ─────────────────────────────────────────────────────────
 const NODES = [
@@ -128,6 +129,8 @@ export const LangGraphVisualizer: React.FC = () => {
     const [logs, setLogs] = useState<{ nodeId: string; text: string; ms: number }[]>([]);
     const [activeEdges, setActiveEdges] = useState<Set<string>>(new Set());
 
+    const navigate = useNavigate();
+
     const reset = useCallback(() => {
         setStep(-1);
         setRunning(false);
@@ -175,13 +178,25 @@ export const LangGraphVisualizer: React.FC = () => {
 
             {/* ── Header ── */}
             <header className="border-b border-white/5 bg-gov-navy-light px-8 py-4 flex items-center justify-between shrink-0">
-                <div className="flex items-center gap-3">
-                    <div className="w-8 h-8 rounded-lg bg-gov-gold/10 border border-gov-gold/30 flex items-center justify-center">
-                        <Cpu size={16} className="text-gov-gold" />
-                    </div>
-                    <div>
-                        <h1 className="text-sm font-bold tracking-widest uppercase text-gov-text">CIVIA · LangGraph Pipeline</h1>
-                        <p className="text-[10px] text-gov-text-muted tracking-widest">Multi-Agent Civic AI — Hackathon Demo</p>
+                <div className="flex items-center gap-6">
+                    <button
+                        onClick={() => navigate('/session')}
+                        className="flex items-center gap-2 text-[10px] text-gov-gold hover:underline uppercase tracking-widest font-bold"
+                    >
+                        <ChevronLeft size={14} />
+                        Back to Chat
+                    </button>
+
+                    <div className="h-6 w-px bg-white/10" />
+
+                    <div className="flex items-center gap-3">
+                        <div className="w-8 h-8 rounded-lg bg-gov-gold/10 border border-gov-gold/30 flex items-center justify-center">
+                            <Cpu size={16} className="text-gov-gold" />
+                        </div>
+                        <div>
+                            <h1 className="text-sm font-bold tracking-widest uppercase text-gov-text">CIVIA · LangGraph Pipeline</h1>
+                            <p className="text-[10px] text-gov-text-muted tracking-widest">Multi-Agent Civic AI — Hackathon Demo</p>
+                        </div>
                     </div>
                 </div>
                 <div className="flex gap-3">

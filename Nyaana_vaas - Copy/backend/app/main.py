@@ -26,8 +26,27 @@ ENV_PATH = os.path.join(BASE_DIR, '.env')
 load_dotenv(ENV_PATH)
 
 # Logging setup for monitoring
-logging.basicConfig(level=logging.INFO)
+logging.basicConfig(
+    level=logging.INFO,
+    format='%(asctime)s - %(name)s - %(levelname)s - %(message)s',
+    handlers=[
+        logging.StreamHandler(),
+        logging.FileHandler("server_output_final_v10.log", encoding="utf-8")
+    ]
+)
+# Force UTF-8 encoding for the stream handler to prevent Windows encoding crashes
+import sys
+for handler in logging.root.handlers:
+    if isinstance(handler, logging.StreamHandler):
+        if sys.platform == 'win32':
+             import io
+             handler.stream = io.TextIOWrapper(handler.stream.buffer, encoding='utf-8')
+        else:
+             handler.setFormatter(logging.Formatter('%(asctime)s - %(name)s - %(levelname)s - %(message)s'))
+
 logger = logging.getLogger(__name__)
+
+
 
 # Define the limiter (by IP address)
 limiter = Limiter(key_func=get_remote_address)
@@ -43,6 +62,8 @@ async def lifespan(app: FastAPI):
     shutdown_scheduler()
 
 app = FastAPI(title="NYAYA-VAANI Backend - Production Architecture", lifespan=lifespan)
+
+
 
 # Mount Rate Limiting
 app.state.limiter = limiter
@@ -61,10 +82,6 @@ app.add_middleware(
 # Phase 2: Error Handling & Logging Middleware Implementation
 @app.middleware("http")
 async def error_handling_middleware(request: Request, call_next):
-    """
-    Middleware to handle exceptions globally, preventing server crashes,
-    and ensuring no structured user PII leaks via standard python traceback logs directly to client.
-    """
     start_time = time.time()
     try:
         response = await call_next(request)
@@ -72,8 +89,26 @@ async def error_handling_middleware(request: Request, call_next):
         logger.info(f"Method: {request.method} Path: {request.url.path} Time: {process_time:.4f}s Status: {response.status_code}")
         return response
     except Exception as e:
+        # Do not catch RateLimitExceeded or HTTPException here, let FastAPI handlers handle them
+        from slowapi.errors import RateLimitExceeded
+        if isinstance(e, (RateLimitExceeded, HTTPException)):
+            raise e
+            
         process_time = time.time() - start_time
-        logger.error(f"Unhandled Exception on {request.url.path}: {e}", exc_info=True)
+        process_time = time.time() - start_time
+        import traceback
+        tb = traceback.format_exc()
+        
+        # Write to a dedicated file with UTF-8 encoding
+        try:
+            with open("critical_errors.log", "a", encoding="utf-8") as f:
+                f.write(f"\n--- ERROR ON {request.url.path} at {time.ctime()} ---\n")
+                f.write(tb)
+                f.write("-" * 50 + "\n")
+        except:
+            pass # Last resort
+            
+        logger.error(f"Unhandled Exception on {request.url.path}: {e}")
         return JSONResponse(
             status_code=500,
             content={"detail": "A critical backend error occurred. Please try again."}
@@ -109,7 +144,7 @@ def health_check():
     return {"status": "healthy"}
 
 @app.post("/analyze")
-@limiter.limit("60/minute", error_message="Rate limit exceeded. Please wait a moment.")
+@limiter.limit("200/minute", error_message="Rate limit exceeded. Please wait a moment.")
 async def analyze_case(request: Request, body: AnalyzeRequest):
     logger.info(f"Received session_id={body.session_id}, history_length={len(body.history)}")
     if not body.text:
