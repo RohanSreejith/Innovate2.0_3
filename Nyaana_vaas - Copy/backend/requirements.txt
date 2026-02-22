@@ -16,7 +16,7 @@ paddlepaddle
 paddleocr
 edge-tts
 Pillow
-fpdf2
+reportlab
 
 # Google ADK Integration
 google-adk>=0.1.0

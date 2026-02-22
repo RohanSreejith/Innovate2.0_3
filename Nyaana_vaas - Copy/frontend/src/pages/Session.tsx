@@ -1,6 +1,6 @@
 import React, { useState, useRef, useEffect } from 'react';
 import { useSession } from '../state/SessionContext';
-import { Send, AlertTriangle, Shield, Mic, Volume2, RefreshCw, CheckCircle2, BookOpen, Download, Paperclip, X } from 'lucide-react';
+import { Send, AlertTriangle, Shield, Mic, Volume2, RefreshCw, CheckCircle2, BookOpen, Download, Paperclip, X, Printer } from 'lucide-react';
 import { useNavigate } from 'react-router-dom';
 
 import { NeuralLink } from '../components/NeuralLink';
@@ -145,16 +145,22 @@ const FormattedMessage: React.FC<{
             )}
 
             {downloadUrl && !qrCode && (
-                <div className="flex flex-col gap-2">
+                <div className="flex flex-row gap-2">
                     <a
                         href={`http://localhost:8000${downloadUrl}`}
                         target="_blank"
                         rel="noopener noreferrer"
-                        className="mt-1 self-start inline-flex items-center gap-2 bg-gov-gold text-gov-navy px-4 py-2 rounded-lg font-bold text-xs uppercase hover:bg-yellow-400 transition-colors shadow-lg"
+                        className="mt-1 inline-flex items-center gap-2 bg-gov-gold text-gov-navy px-4 py-2 rounded-lg font-bold text-xs uppercase hover:bg-yellow-400 transition-colors shadow-lg"
                     >
-                        <Download size={13} /> Download Filled Form
-                    </a >
-                </div >
+                        <Download size={13} /> Download
+                    </a>
+                    <button
+                        onClick={() => alert("Printing service initialized (Mock)")}
+                        className="mt-1 inline-flex items-center gap-2 bg-white/10 text-white border border-white/20 px-4 py-2 rounded-lg font-bold text-xs uppercase hover:bg-white/20 transition-colors"
+                    >
+                        <Printer size={13} /> Print
+                    </button>
+                </div>
             )}
 
             <button
